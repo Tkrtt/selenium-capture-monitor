@@ -1,0 +1,114 @@
+services:
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      #- ./grafana/datasources
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - influxdb
+      - prometheus
+
+  # InfluxDB for time-series data
+  influxdb:
+    image: influxdb:latest
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb-storage:/var/lib/influxdb
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin123
+      - DOCKER_INFLUXDB_INIT_ORG=myorg
+      - DOCKER_INFLUXDB_INIT_BUCKET=mybucket
+      - DOCKER_INFLUXDB_INIT_RETENTION=1w
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=mytoken
+
+  # Telegraf for metrics collection
+  telegraf:
+    image: telegraf:latest
+    container_name: telegraf
+    ports:
+      - "9273:9273"
+      - "8125:8125"
+      - "8092:8092"
+      - "8094:8094"
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf
+      - /:/hostfs:ro
+    environment:
+      - HOST_MOUNT_PREFIX=/hostfs
+      - HOST_PROC=/hostfs/proc
+    depends_on:
+      - influxdb
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-storage:/prometheus
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  # Node Exporter for host metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+
+  # Splunk Enterprise
+  splunk:
+    image: splunk/splunk:latest
+    container_name: splunk
+    environment:
+      - SPLUNK_START_ARGS=--accept-license
+      - SPLUNK_PASSWORD=changeme123
+      - SPLUNK_HEC_TOKEN=myhectoken
+    ports:
+      - "8000:8000"  # Web UI
+      - "8088:8088"  # HEC (HTTP Event Collector)
+      - "9997:9997"  # Splunk-to-Splunk
+    volumes:
+      - splunk-storage:/opt/splunk/var
+      - splunk-etc-storage:/opt/splunk/etc
+
+  jenkins:
+    image: jenkins/jenkins:alpine-jdk21
+    container_name: jenkins
+    ports:
+      - "8080:8080"
+    volumes:
+      - jenkins-storage:/var/jenkins_home
+  jenkins-ssh-agent:
+    image: jenkins/ssh-agent
+    container_name: ssh-agent
+volumes:
+  grafana-storage:
+  influxdb-storage:
+  prometheus-storage:
+  splunk-storage:
+  splunk-etc-storage:
+  jenkins-storage:

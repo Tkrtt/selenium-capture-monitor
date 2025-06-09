@@ -1,51 +1,61 @@
 import requests
 import json
 
-env_url = "https://<your-environment-id>.live.dynatrace.com"  # Replace with your Dynatrace URL
-api_token = "<your-api-token>"  # Replace with your API token
+# Configuration - replace with your Dynatrace details
+BASE_URL = "https://IP"  # Replace with your Dynatrace host IP/URL
+ENVIRONMENT_ID = "ENVIRONMENT"  # Replace with your environment ID
+API_TOKEN = "YOUR_API_TOKEN"  # Replace with your Dynatrace API token
 
-def get_management_zone_mapping():
-    endpoint = f"{env_url}/api/v2/settings/objects"
-    headers = {"Authorization": f"Api-Token {api_token}"}
-    params = {
-        "schemaIds": "builtin:management.zone",
-        "fields": "objectId,value"  # Fetch only required fields
+def get_management_zones():
+    # Setup headers with API token
+    headers = {
+        "Authorization": f"Api-Token {API_TOKEN}",
+        "Content-Type": "application/json"
     }
+    
+    # Step 1: Fetch all management zone objects with pagination
     all_items = []
     next_page_key = None
-
+    
     while True:
         if next_page_key:
-            params["nextPageKey"] = next_page_key
+            url = f"{BASE_URL}/e/{ENVIRONMENT_ID}/api/v2/settings/objects?nextPageKey={next_page_key}"
         else:
-            params.pop("nextPageKey", None)  # Remove key if not needed
+            url = f"{BASE_URL}/e/{ENVIRONMENT_ID}/api/v2/settings/objects?schemaIds=builtin:management-zones"
         
-        response = requests.get(endpoint, headers=headers, params=params)
-        response.raise_for_status()  # Check for HTTP errors
-        
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raise error for bad status codes
         data = response.json()
-        all_items.extend(data.get("items", []))
         
+        all_items.extend(data["items"])
         next_page_key = data.get("nextPageKey")
         if not next_page_key:
             break
 
-    # Map objectId to management zone ID
-    mz_mapping = {}
-    for item in all_items:
-        object_id = item["objectId"]
-        try:
-            # 'value' is a dictionary; extract the 'id' field
-            mz_id = item["value"]["id"]
-            mz_mapping[object_id] = mz_id
-        except KeyError:
-            print(f"Warning: 'id' not found for objectId {object_id}. Skipping.")
+    # Step 2: Extract MZ-OBJID and names, then get MZ-ID for each
+    management_zones = []
     
-    return mz_mapping
+    for item in all_items:
+        obj_id = item["objectId"]
+        name = item["value"]["name"]
+        
+        # Fetch detailed management zone to get MZ-ID
+        detail_url = f"{BASE_URL}/e/{ENVIRONMENT_ID}/api/v2/settings/managementZones/{obj_id}"
+        detail_resp = requests.get(detail_url, headers=headers)
+        detail_resp.raise_for_status()
+        detail_data = detail_resp.json()
+        
+        mz_id = detail_data["id"]
+        management_zones.append({"id": mz_id, "name": name})
+    
+    # Step 3: Format the final JSON
+    return {"management-zones": management_zones}
 
-# Example Usage
 if __name__ == "__main__":
-    mapping = get_management_zone_mapping()
-    print("Mapping of objectId to Management Zone ID:")
-    for obj_id, mz_id in mapping.items():
-        print(f"objectId {obj_id} -> Management Zone ID {mz_id}")
+    try:
+        result = get_management_zones()
+        print(json.dumps(result, indent=2))
+    except requests.exceptions.RequestException as e:
+        print(f"API Error: {e}")
+    except KeyError as e:
+        print(f"Data parsing error: Missing key {e}")
